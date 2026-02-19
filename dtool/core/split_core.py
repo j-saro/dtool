@@ -1,43 +1,11 @@
 import os
-import shutil
 from lxml import etree
 from copy import deepcopy
 from typing import List, Tuple
 import logging
 
-from .config import Boundary
-from .workspace import Workspace
-from ..utils.helpers import move_files
+from .config import Boundary, Unit
 from ..utils.constants import NS
-
-
-def get_visible_text(xml_path: etree._Element) -> int:
-    total_chars = 0
-    with open(xml_path, "rb") as f:
-        context = etree.iterparse(f, events=("end",), tag="{*}t")
-        for _, elem in context:
-            if elem.text:
-                total_chars += len(elem.text)
-            elem.clear()
-
-            while elem.getprevious() is not None:
-                del elem.getparent()[0]
-
-    return total_chars
-
-
-def handle_small_file(
-    total_chars: int,
-    char_count: int,
-    file_path: str,
-    workspace: Workspace,
-    output_path: str,
-) -> bool:
-    if total_chars < char_count:
-        shutil.copy(file_path, workspace.temp_copy_path)
-        move_files(workspace.temp_copy_path, output_path)
-        return False
-    return True
 
 
 def _find_last_valid_split_offset(text: str, strategy: Boundary) -> int:
@@ -72,8 +40,6 @@ def _split_paragraph_node(
     text_node_to_split: etree._Element,
     char_offset_in_node: int,
 ):
-    # Create a complete, independent copy of the paragraph.
-    # This preserves all formatting (<w:pPr>) and run properties (<w:rPr>).
     new_p = deepcopy(p_element)
 
     # Modify the original paragraph (to be the first part of the split)
@@ -87,9 +53,9 @@ def _split_paragraph_node(
     # Remove all text nodes that came after the split node in the original paragraph
     nodes_to_remove = original_text_nodes[split_node_index + 1 :]
     for node in nodes_to_remove:
-        parent_run = node.getparent()  # This is the <w:r> tag
+        parent_run = node.getparent()
         parent_run.remove(node)
-        # Optional: if the <w:r> tag is now empty, remove it too.
+        # if the <w:r> tag is now empty, remove it too.
         if not parent_run.getchildren() and parent_run.text is None:
             parent_run.getparent().remove(parent_run)
 
@@ -103,9 +69,8 @@ def _split_paragraph_node(
     # Remove all text nodes that came before the split node in the new paragraph
     nodes_to_remove = new_text_nodes[:split_node_index]
     for node in nodes_to_remove:
-        parent_run = node.getparent()  # <w:r>
+        parent_run = node.getparent()
         parent_run.remove(node)
-        # Optional: if the <w:r> tag is now empty, remove it too.
         if not parent_run.getchildren() and parent_run.text is None:
             parent_run.getparent().remove(parent_run)
 
@@ -118,9 +83,10 @@ def _split_paragraph_node(
     p_element.addnext(new_p)
 
 
-def preprocess_and_get_split_indices(
-    root: etree._Element, char_count: int, strategy: Boundary
+def preprocess_content(
+    root: etree._Element, count: int, unit: Unit, boundary: Boundary
 ) -> Tuple[etree._Element, list]:
+
     all_text_nodes = root.xpath(".//w:t", namespaces=NS)
     if not all_text_nodes:
         return root, []
@@ -130,123 +96,71 @@ def preprocess_and_get_split_indices(
     total_nodes = len(all_text_nodes)
 
     while current_start_node_index < total_nodes:
-        chars_in_current_doc = 0
+        current_value_in_doc = 0
         split_found_in_pass = False
-
         last_valid_split_point = None
 
         for node_idx in range(current_start_node_index, total_nodes):
             node = all_text_nodes[node_idx]
             node_text = node.text or ""
 
-            if strategy != Boundary.STRICT:
-                offset = _find_last_valid_split_offset(node_text, strategy)
+            if unit == Unit.CHARS:
+                node_val = len(node_text)
+            else:
+                node_val = len(node_text.split())
+
+            if boundary != Boundary.STRICT:
+                offset = _find_last_valid_split_offset(node_text, boundary)
                 if offset != -1:
                     last_valid_split_point = {
                         "node_idx": node_idx,
                         "offset": offset,
-                        "chars_at_split": chars_in_current_doc + offset,
+                        "value_at_split": current_value_in_doc
+                        + (
+                            offset
+                            if unit == Unit.CHARS
+                            else len(node_text[:offset].split())
+                        ),
                     }
 
-            chars_in_current_doc += len(node_text)
+            current_value_in_doc += node_val
 
-            if chars_in_current_doc >= char_count:
+            if current_value_in_doc >= count:
                 split_node_idx = -1
                 split_offset = -1
 
-                if strategy == Boundary.STRICT:
-                    chars_before_this_node = chars_in_current_doc - len(node_text)
-                    split_offset = char_count - chars_before_this_node
-                    split_node_idx = node_idx
-                elif last_valid_split_point:
+                if boundary != Boundary.STRICT and last_valid_split_point:
                     split_node_idx = last_valid_split_point["node_idx"]
                     split_offset = last_valid_split_point["offset"]
-
-                if split_node_idx != -1 and split_offset > 0:
-                    split_node = all_text_nodes[split_node_idx]
-                    p_element = split_node.getparent()
-                    while p_element is not None and p_element.tag != f"{{{NS['w']}}}p":
-                        p_element = p_element.getparent()
-
-                    if p_element is not None:
-                        _split_paragraph_node(p_element, split_node, split_offset)
-
-                        end_node_index = split_node_idx + 1
-                        split_ranges.append((current_start_node_index, end_node_index))
-
-                        current_start_node_index = end_node_index
-                        split_found_in_pass = True
-                        break
-
-        if not split_found_in_pass:
-            break
-
-        all_text_nodes = root.xpath(".//w:t", namespaces=NS)
-        total_nodes = len(all_text_nodes)
-
-    if current_start_node_index < total_nodes:
-        split_ranges.append((current_start_node_index, total_nodes))
-
-    return root, split_ranges
-
-
-def preprocess_by_word_count(
-    root: etree._Element, word_count: int, strategy: Boundary
-) -> Tuple[etree._Element, list]:
-    all_text_nodes = root.xpath(".//w:t", namespaces=NS)
-    if not all_text_nodes:
-        return root, []
-
-    split_ranges = []
-    current_start_node_index = 0
-    total_nodes = len(all_text_nodes)
-
-    while current_start_node_index < total_nodes:
-        words_in_current_doc = 0
-        split_found_in_pass = False
-
-        last_known_sentence_end = None
-
-        for node_idx in range(current_start_node_index, total_nodes):
-            node = all_text_nodes[node_idx]
-            node_text = node.text or ""
-            node_words = node_text.split()
-
-            if strategy == Boundary.NEAREST_SENTENCE:
-                offset = _find_last_valid_split_offset(
-                    node_text, Boundary.NEAREST_SENTENCE
-                )
-                if offset != -1:
-                    last_known_sentence_end = {"node_idx": node_idx, "offset": offset}
-
-            words_in_current_doc += len(node_words)
-
-            if words_in_current_doc >= word_count:
-                split_node_idx = -1
-                split_offset = -1
-
-                if strategy == Boundary.NEAREST_SENTENCE and last_known_sentence_end:
-                    split_node_idx = last_known_sentence_end["node_idx"]
-                    split_offset = last_known_sentence_end["offset"]
                 else:
-                    split_node_idx = node_idx
-                    split_offset = len(node_text)
+                    if boundary == Boundary.STRICT and unit == Unit.CHARS:
+                        overhang = current_value_in_doc - count
+                        split_offset = len(node_text) - overhang
+                        split_node_idx = node_idx
+                    else:
+                        split_node_idx = node_idx
+                        split_offset = len(node_text)
 
                 if split_node_idx != -1 and split_offset > 0:
                     split_node = all_text_nodes[split_node_idx]
-                    p_element = split_node.getparent()
-                    while p_element is not None and p_element.tag != f"{{{NS['w']}}}p":
-                        p_element = p_element.getparent()
 
-                    if p_element is not None:
-                        _split_paragraph_node(p_element, split_node, split_offset)
+                    node_length = len(split_node.text or "")
+                    if split_offset < node_length:
+                        p_element = split_node.getparent()
+                        while (
+                            p_element is not None and p_element.tag != f"{{{NS['w']}}}p"
+                        ):
+                            p_element = p_element.getparent()
 
-                        end_node_index = split_node_idx + 1
-                        split_ranges.append((current_start_node_index, end_node_index))
+                        if p_element is not None:
+                            _split_paragraph_node(p_element, split_node, split_offset)
 
-                        current_start_node_index = end_node_index
-                        split_found_in_pass = True
-                        break
+                    end_node_index = split_node_idx + 1
+                    split_ranges.append((current_start_node_index, end_node_index))
+
+                    current_start_node_index = end_node_index
+                    split_found_in_pass = True
+                    break
 
         if not split_found_in_pass:
             break

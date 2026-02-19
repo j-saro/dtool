@@ -22,13 +22,10 @@ def parse_docx(file_path: str, extraction_folder: str) -> None:
         raise RuntimeError(f"Permission denied extracting {file_path}") from e
 
 
-def parse_file(file_path: str) -> Tuple[str, etree._Element, bytes]:
+def parse_file(file_path: str) -> Tuple[etree._Element, bytes]:
     parser = etree.XMLParser(remove_blank_text=True, ns_clean=True)
     tree = etree.parse(file_path, parser)
-    root = tree.getroot()
-    data = etree.tostring(root, encoding="utf-8")
-
-    return file_path, tree, root, data
+    return tree, tree.getroot()
 
 
 def create_zip_from_folder(folder_path: str, output_path: str) -> None:

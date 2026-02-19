@@ -15,9 +15,8 @@ def remove_elements_with_tag(
     if namespace:
         NS.update(namespace)
 
-    xml_path, xml_tree, xml_root, _ = parse_file(
-        os.path.join(workspace.temp_dir_path, "word", "document.xml")
-    )
+    xml_path = os.path.join(workspace.temp_dir_path, "word", "document.xml")
+    xml_tree, xml_root = parse_file(xml_path)
 
     if ":" in tag:
         prefix, local_name = tag.split(":")
@@ -47,7 +46,7 @@ def remove_encryption_from_settings(workspace: Workspace) -> None:
         return
 
     try:
-        _, rel_tree, rel_root, _ = parse_file(settings_path)
+        rel_tree, rel_root = parse_file(settings_path)
         protections = rel_root.findall("w:documentProtection", namespaces=NS)
 
         if not protections:
@@ -89,18 +88,14 @@ def get_output_path(output_path: str, input_file: list) -> str:
 
 
 def merge_documents(source_files: list, output_file_path: str) -> None:
-    # Create initial document
+    logging.info(f"Processing file 1...")
     master_doc = Document(source_files[0])
     composer = Composer(master_doc)
 
-    # Add page breaks and subsequent documents
     for index, file in enumerate(source_files[1:]):
-        logging.info(f"Processing file {index+1}...")
+        logging.info(f"Processing file {index+2}...")
         break_doc = Document()
         composer.append(break_doc)
-
-        # Add document content
         composer.append(Document(file))
 
-    # Save merged document
     composer.save(output_file_path)

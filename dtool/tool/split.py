@@ -6,17 +6,14 @@ from lxml import etree
 from copy import deepcopy
 import logging
 
-from ..core.config import Config, Unit
+from ..core.config import Config
 from ..core.processor import (
     parse_docx,
     parse_file,
     create_zip_from_folder,
 )
 from ..core.split_core import (
-    handle_small_file,
-    preprocess_and_get_split_indices,
-    preprocess_by_word_count,
-    get_visible_text,
+    preprocess_content,
     remove_by_index,
     remove_empty_wp_before,
     remove_empty_wp_after,
@@ -49,35 +46,19 @@ def split_docx(config: Config) -> int:
             )
             parse_docx(config.file_path, shared_extract_path)
 
-            xml_path, _, xml_root, _ = parse_file(
+            _, xml_root = parse_file(
                 os.path.join(shared_extract_path, "word/document.xml")
             )
-            _, _, rel_root, _ = parse_file(
+            _, rel_root = parse_file(
                 os.path.join(shared_extract_path, "word/_rels/document.xml.rels")
             )
 
             logging.info(
-                f"Splitting by {config.unit.split('s')[0]} count (target: {config.count} {config.unit}/file)",
+                f"Splitting by {config.unit} (target: {config.count}) using {config.boundary} boundary"
             )
-            if config.unit == Unit.WORDS:
-                modified_xml_root, index_list = preprocess_by_word_count(
-                    xml_root, config.count, config.boundary
-                )
-            else:
-                total_chars = get_visible_text(xml_path)
-                logging.info(f"Total Chars: {total_chars}")
-                if not handle_small_file(
-                    total_chars,
-                    config.count,
-                    config.file_path,
-                    workspace,
-                    config.output_path,
-                ):
-                    logging.info(f"'{basename}' is already smaller than target size.")
-                    return 1
-                modified_xml_root, index_list = preprocess_and_get_split_indices(
-                    xml_root, config.count, config.boundary
-                )
+            modified_xml_root, index_list = preprocess_content(
+                xml_root, config.count, config.unit, config.boundary
+            )
 
             num_copies = len(index_list)
             if num_copies <= 1:

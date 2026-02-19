@@ -2,14 +2,17 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 import os
 
+
 class Unit(StrEnum):
     CHARS = auto()
     WORDS = auto()
+
 
 class Boundary(StrEnum):
     STRICT = auto()
     NEAREST_WORD = auto()
     NEAREST_SENTENCE = auto()
+
 
 @dataclass
 class Config:

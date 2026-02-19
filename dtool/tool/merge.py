@@ -19,21 +19,24 @@ from ..core.merge_core import (
 
 @timer
 def merge_docx(
-    input_files: Union[List[str], str], output_path: str = os.getcwd(), remove_encryption=False
+    input_files: Union[List[str], str],
+    output_path: str = os.getcwd(),
+    remove_encryption=False,
 ) -> bool:
     processed_file_list = []
 
     if isinstance(input_files, str):
         if os.path.isdir(input_files):
             processed_file_list = [
-                os.path.join(input_files, f) 
-                for f in os.listdir(input_files) 
+                os.path.join(input_files, f)
+                for f in os.listdir(input_files)
                 if f.lower().endswith(".docx") and not f.startswith("~")
             ]
             processed_file_list.sort()
         else:
-            raise NotADirectoryError(f"The path '{input_files}' is not a valid directory.")
-            
+            raise NotADirectoryError(
+                f"The path '{input_files}' is not a valid directory."
+            )
     elif isinstance(input_files, list):
         processed_file_list = input_files
     else:
