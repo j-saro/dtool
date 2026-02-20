@@ -1,8 +1,7 @@
 import os
 from lxml import etree
 from copy import copy
-from typing import List, Tuple
-import logging
+from typing import Tuple
 
 from .config import Boundary, Unit
 from ..utils.constants import NS
@@ -42,31 +41,24 @@ def _split_paragraph_node(
 ):
     new_p = copy(p_element)
 
-    # Modify the original paragraph (to be the first part of the split)
     original_text_nodes = list(p_element.iterfind(".//w:t", namespaces=NS))
     split_node_index = original_text_nodes.index(text_node_to_split)
 
-    # Truncate the text in the specific node where the split occurs
     original_split_node = original_text_nodes[split_node_index]
     original_split_node.text = original_split_node.text[:char_offset_in_node]
 
-    # Remove all text nodes that came after the split node in the original paragraph
     nodes_to_remove = original_text_nodes[split_node_index + 1 :]
     for node in nodes_to_remove:
         parent_run = node.getparent()
         parent_run.remove(node)
-        # if the <w:r> tag is now empty, remove it too.
         if not parent_run.getchildren() and parent_run.text is None:
             parent_run.getparent().remove(parent_run)
 
-    # Modify the new paragraph (to be the second part of the split)
     new_text_nodes = list(new_p.iterfind(".//w:t", namespaces=NS))
 
-    # In the new paragraph, shorten the split node's text to be the remainder
     new_split_node = new_text_nodes[split_node_index]
     new_split_node.text = new_split_node.text[char_offset_in_node:]
 
-    # Remove all text nodes that came before the split node in the new paragraph
     nodes_to_remove = new_text_nodes[:split_node_index]
     for node in nodes_to_remove:
         parent_run = node.getparent()
@@ -74,12 +66,10 @@ def _split_paragraph_node(
         if not parent_run.getchildren() and parent_run.text is None:
             parent_run.getparent().remove(parent_run)
 
-    # Also remove the now-empty text node itself from the new paragraph if it's empty
     if not new_split_node.text:
         parent_run = new_split_node.getparent()
         parent_run.remove(new_split_node)
 
-    # Insert the newly created paragraph into the main XML tree
     p_element.addnext(new_p)
 
 
@@ -198,64 +188,23 @@ def remove_empty_wp_after(root: etree._Element) -> None:
         if text_elements:
             last_text_index = index
 
-    paragraphs = root.findall(".//w:p", namespaces=NS)
-    for index, paragraph in enumerate(paragraphs):
+    for index, paragraph in enumerate(root.findall(".//w:p", namespaces=NS)):
         if index > last_text_index:
             paragraph.getparent().remove(paragraph)
 
 
-def remove_unreferenced_images(
-    temp_dir_path: str, xml_root: etree._Element, rel_root: etree._Element
-) -> etree._Element:
-    to_delete_rels = []
+def get_used_images(xml_root, rel_root, namespace) -> set:
+    used_image_names = set()
 
-    try:
-        media_folder = os.path.join(temp_dir_path, "word", "media")
-        existing_images = (
-            os.listdir(media_folder) if os.path.exists(media_folder) else []
-        )
+    rel_id_to_target = {}
+    for rel in rel_root.findall(".//ns:Relationship", namespace):
+        if "image" in rel.get("Type", ""):
+            rel_id_to_target[rel.get("Id")] = rel.get("Target")
 
-        image_references = extract_image_references(xml_root, rel_root)
+    for blip in xml_root.findall(".//w:drawing//a:blip", namespace):
+        embed_id = blip.get(f"{{{namespace['r']}}}embed")
+        if embed_id in rel_id_to_target:
+            target = rel_id_to_target[embed_id]
+            used_image_names.add(os.path.basename(target))
 
-        for image_file in existing_images:
-            reference = os.path.splitext(image_file)[0]
-            if reference not in image_references:
-                os.remove(os.path.join(media_folder, image_file))
-                to_delete_rels.append(reference)
-
-        remove_image_references(temp_dir_path, to_delete_rels, rel_root)
-
-    except Exception as e:
-        logging.error(f"Error occurred while removing unreferenced images: {e}")
-
-    return xml_root
-
-
-def extract_image_references(
-    root: etree._Element, rel_root: etree._Element
-) -> List[str]:
-    references = []
-    for elem in root.findall(".//w:drawing//a:blip", NS):
-        reference = elem.get(
-            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-        )
-        if reference:
-            image_name = None
-            for rel_elem in rel_root.findall(".//ns:Relationship", NS):
-                if "image" in rel_elem.get("Type") and reference == rel_elem.get("Id"):
-                    image_path = rel_elem.get("Target")
-                    image_name = os.path.splitext(os.path.basename(image_path))[0]
-                    references.append(image_name)
-                    break
-    return references
-
-
-def remove_image_references(temp_dir_path: str, to_delete_rels: list, rel_root) -> None:
-    for image_name in to_delete_rels:
-        for rel_elem in rel_root.findall(".//ns:Relationship", NS):
-            if "image" in rel_elem.get("Type") and image_name in rel_elem.get("Target"):
-                rel_root.remove(rel_elem)
-
-    rel_path = os.path.join(temp_dir_path, "word", "_rels", "document.xml.rels")
-    with open(rel_path, "wb") as f:
-        f.write(etree.tostring(rel_root, encoding="utf-8", pretty_print=True))
+    return used_image_names

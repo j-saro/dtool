@@ -1,101 +1,96 @@
 import os
+import io
+import zipfile
 from lxml import etree
 from docx import Document
 from docxcompose.composer import Composer
 import logging
+from typing import List, IO
 
-from .processor import parse_file
-from .workspace import Workspace
-from ..utils.constants import NS
-
-
-def remove_elements_with_tag(
-    workspace: Workspace, tag: str, namespace: dict = None
-) -> None:
-    if namespace:
-        NS.update(namespace)
-
-    xml_path = os.path.join(workspace.temp_dir_path, "word", "document.xml")
-    xml_tree, xml_root = parse_file(xml_path)
-
-    if ":" in tag:
-        prefix, local_name = tag.split(":")
-        xpath = f"//w:p[@{prefix}:{local_name}]"
-    else:
-        xpath = f"//w:p[@{tag}]"
-
-    try:
-        elements_to_remove = xml_root.xpath(xpath, namespaces=NS)
-        for element in elements_to_remove:
-            parent = element.getparent()
-            if parent is not None:
-                parent.remove(element)
-
-        xml_tree.write(
-            xml_path, encoding="utf-8", pretty_print=True, xml_declaration=True
-        )
-    except etree.XPathEvalError as e:
-        raise ValueError(f"Failed XPath evaluation: {e}")
+from ..utils import constants
 
 
-def remove_encryption_from_settings(workspace: Workspace) -> None:
-    settings_path = os.path.join(workspace.temp_dir_path, "word", "settings.xml")
+def preprocess_docx(
+    docx_bytes: bytes,
+    remove_enc: bool = False,
+    remove_tag: str = None,
+    tag_ns: dict = None,
+) -> io.BytesIO:
+    input_stream = io.BytesIO(docx_bytes)
+    output_stream = io.BytesIO()
 
-    if not os.path.exists(settings_path):
-        logging.info("No settings.xml found - skipping encryption removal")
+    current_ns = constants.NS.copy()
+    if tag_ns:
+        current_ns.update(tag_ns)
+
+    with zipfile.ZipFile(input_stream, "r") as z_in, zipfile.ZipFile(
+        output_stream, "w", zipfile.ZIP_DEFLATED
+    ) as z_out:
+
+        for filename in z_in.namelist():
+            content = z_in.read(filename)
+            if remove_enc and filename == "word/settings.xml":
+                try:
+                    root = etree.fromstring(content)
+                    protections = root.findall(
+                        "w:documentProtection", namespaces=constants.NS
+                    )
+                    if protections:
+                        for p in protections:
+                            root.remove(p)
+                        content = etree.tostring(
+                            root, encoding="utf-8", xml_declaration=True
+                        )
+                        logging.info("Encryption removed.")
+                except:
+                    pass
+
+            if remove_tag and filename == "word/document.xml":
+                try:
+                    root = etree.fromstring(content)
+                    if ":" in remove_tag:
+                        prefix, local = remove_tag.split(":")
+                        xpath = f"//w:p[@{prefix}:{local}]"
+                    else:
+                        xpath = f"//w:p[@{remove_tag}]"
+
+                    elements = root.xpath(xpath, namespaces=current_ns)
+                    if elements:
+                        for el in elements:
+                            el.getparent().remove(el)
+                        content = etree.tostring(
+                            root, encoding="utf-8", xml_declaration=True
+                        )
+                        logging.info(f"Removed {len(elements)} tags.")
+                except:
+                    pass
+
+            z_out.writestr(filename, content)
+
+    output_stream.seek(0)
+    return output_stream
+
+
+def get_output_filename(input_file_path: str) -> str:
+    base_name = os.path.basename(input_file_path)
+    parts = base_name.split("_")
+    if len(parts) > 1 and parts[0].isdigit():
+        return "_".join(parts[1:])
+    return base_name
+
+
+def merge_documents(streams: List[IO[bytes]], output_path: str) -> None:
+    if not streams:
         return
 
-    try:
-        rel_tree, rel_root = parse_file(settings_path)
-        protections = rel_root.findall("w:documentProtection", namespaces=NS)
-
-        if not protections:
-            logging.info("No encryption tags found - nothing to remove")
-            return
-
-        for protection in protections:
-            rel_root.remove(protection)
-
-        rel_tree.write(
-            settings_path, xml_declaration=True, encoding="utf-8", pretty_print=True
-        )
-        logging.info("Successfully removed document encryption")
-
-    except etree.XMLSyntaxError as e:
-        logging.error(
-            f"Invalid XML structure in settings.xml: {str(e)}", exc_info=False
-        )
-    except Exception as e:
-        logging.error(
-            f"Encountered issue during encryption removal: {str(e)}", exc_info=False
-        )
-
-
-def get_output_path(output_path: str, input_file: list) -> str:
-    base_path = os.path.basename(input_file)
-    basename_parts = (
-        base_path.split("_")[1:] if base_path.split("_")[0].isdigit() else []
-    )
-    basename = "_".join(basename_parts) or os.path.basename(input_file)
-
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-
-    output_docx = os.path.join(output_path, basename)
-    if not output_docx.endswith(".docx"):
-        output_docx += ".docx"
-    return output_docx
-
-
-def merge_documents(source_files: list, output_file_path: str) -> None:
-    logging.info(f"Processing file 1...")
-    master_doc = Document(source_files[0])
+    logging.info(f"Initializing master document 1...")
+    master_doc = Document(streams[0])
     composer = Composer(master_doc)
 
-    for index, file in enumerate(source_files[1:]):
-        logging.info(f"Processing file {index+2}...")
-        break_doc = Document()
-        composer.append(break_doc)
-        composer.append(Document(file))
+    for i, stream in enumerate(streams[1:]):
+        logging.info(f"Appending document {i+2}...")
+        doc_to_append = Document(stream)
+        composer.append(doc_to_append)
 
-    composer.save(output_file_path)
+    logging.info(f"Saving merged document to {output_path}")
+    composer.save(output_path)

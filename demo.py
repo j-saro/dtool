@@ -6,16 +6,16 @@ def split():
         Config(
             file_path=r"Moby-Dick_-Or_-The-Whale-by-Herman-Melville.docx",
             output_path="split_output",
-            count=10000,
+            count=90000,
             unit=Unit.CHARS,
-            boundary=Boundary.STRICT,
+            boundary=Boundary.NEAREST_SENTENCE,
         )
     )
 
 
 def merge():
     merge_docx(
-        input_files=r"split_output", output_path="output_folder", remove_encryption=True
+        input_files=r"split_output", output_path="merge_output", remove_encryption=True
     )
 
 
