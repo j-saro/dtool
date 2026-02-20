@@ -6,7 +6,7 @@ def split():
         Config(
             file_path=r"Moby-Dick_-Or_-The-Whale-by-Herman-Melville.docx",
             output_path="split_output",
-            count=90000,
+            count=10000,
             unit=Unit.CHARS,
             boundary=Boundary.STRICT,
         )
@@ -20,5 +20,5 @@ def merge():
 
 
 if __name__ == "__main__":
-    # split()
-    merge()
+    split()
+    # merge()

@@ -86,91 +86,87 @@ def _split_paragraph_node(
 def preprocess_content(
     root: etree._Element, count: int, unit: Unit, boundary: Boundary
 ) -> Tuple[etree._Element, list]:
-
+    
     all_text_nodes = root.xpath(".//w:t", namespaces=NS)
     if not all_text_nodes:
         return root, []
 
-    split_ranges = []
-    current_start_node_index = 0
+    planned_splits = []
+    
+    current_doc_val = 0
+    node_idx = 0
     total_nodes = len(all_text_nodes)
-
-    while current_start_node_index < total_nodes:
-        current_value_in_doc = 0
-        split_found_in_pass = False
-        last_valid_split_point = None
-
-        for node_idx in range(current_start_node_index, total_nodes):
-            node = all_text_nodes[node_idx]
-            node_text = node.text or ""
-
-            if unit == Unit.CHARS:
-                node_val = len(node_text)
+    
+    while node_idx < total_nodes:
+        node = all_text_nodes[node_idx]
+        node_text = node.text or ""
+        
+        if unit == Unit.CHARS:
+            node_val = len(node_text)
+        else:
+            node_val = len(node_text.split())
+        potential_split_offset = -1
+        if boundary != Boundary.STRICT:
+            potential_split_offset = _find_last_valid_split_offset(node_text, boundary)
+        
+        temp_val = current_doc_val + node_val
+        
+        if temp_val >= count:
+            final_split_node = node
+            final_offset = -1
+            
+            if boundary != Boundary.STRICT and potential_split_offset != -1:
+                final_offset = potential_split_offset
+                
             else:
-                node_val = len(node_text.split())
-
-            if boundary != Boundary.STRICT:
-                offset = _find_last_valid_split_offset(node_text, boundary)
-                if offset != -1:
-                    last_valid_split_point = {
-                        "node_idx": node_idx,
-                        "offset": offset,
-                        "value_at_split": current_value_in_doc
-                        + (
-                            offset
-                            if unit == Unit.CHARS
-                            else len(node_text[:offset].split())
-                        ),
-                    }
-
-            current_value_in_doc += node_val
-
-            if current_value_in_doc >= count:
-                split_node_idx = -1
-                split_offset = -1
-
-                if boundary != Boundary.STRICT and last_valid_split_point:
-                    split_node_idx = last_valid_split_point["node_idx"]
-                    split_offset = last_valid_split_point["offset"]
+                if unit == Unit.CHARS:
+                    overhang = temp_val - count
+                    final_offset = len(node_text) - overhang
                 else:
-                    if boundary == Boundary.STRICT and unit == Unit.CHARS:
-                        overhang = current_value_in_doc - count
-                        split_offset = len(node_text) - overhang
-                        split_node_idx = node_idx
-                    else:
-                        split_node_idx = node_idx
-                        split_offset = len(node_text)
+                    final_offset = len(node_text)
 
-                if split_node_idx != -1 and split_offset > 0:
-                    split_node = all_text_nodes[split_node_idx]
+            if final_offset > 0 and final_offset < len(node_text):
+                planned_splits.append((final_split_node, final_offset))
+                
+                remainder_text = node_text[final_offset:]
+                if unit == Unit.CHARS:
+                    current_doc_val = len(remainder_text)
+                else:
+                    current_doc_val = len(remainder_text.split())
+            else:
+                current_doc_val = 0
+                
+        else:
+            current_doc_val = temp_val
+            
+        node_idx += 1
 
-                    node_length = len(split_node.text or "")
-                    if split_offset < node_length:
-                        p_element = split_node.getparent()
-                        while (
-                            p_element is not None and p_element.tag != f"{{{NS['w']}}}p"
-                        ):
-                            p_element = p_element.getparent()
+    for node, offset in reversed(planned_splits):
+        p_element = node.getparent()
+        while p_element is not None and p_element.tag != f"{{{NS['w']}}}p":
+            p_element = p_element.getparent()
+            
+        if p_element is not None:
+            _split_paragraph_node(p_element, node, offset)
 
-                        if p_element is not None:
-                            _split_paragraph_node(p_element, split_node, split_offset)
-
-                    end_node_index = split_node_idx + 1
-                    split_ranges.append((current_start_node_index, end_node_index))
-
-                    current_start_node_index = end_node_index
-                    split_found_in_pass = True
-                    break
-
-        if not split_found_in_pass:
-            break
-
-        all_text_nodes = root.xpath(".//w:t", namespaces=NS)
-        total_nodes = len(all_text_nodes)
-
-    if current_start_node_index < total_nodes:
-        split_ranges.append((current_start_node_index, total_nodes))
-
+    final_text_nodes = root.xpath(".//w:t", namespaces=NS)
+    split_ranges = []
+    current_start_idx = 0
+    current_val = 0
+    
+    for idx, node in enumerate(final_text_nodes):
+        txt = node.text or ""
+        val = len(txt) if unit == Unit.CHARS else len(txt.split())
+        current_val += val
+        
+        if current_val >= count:
+            split_ranges.append((current_start_idx, idx + 1))
+            current_start_idx = idx + 1
+            current_val = 0
+            
+    if current_start_idx < len(final_text_nodes):
+        split_ranges.append((current_start_idx, len(final_text_nodes)))
+        
     return root, split_ranges
 
 
