@@ -1,6 +1,6 @@
 import os
 from lxml import etree
-from copy import deepcopy
+from copy import copy
 from typing import List, Tuple
 import logging
 
@@ -40,7 +40,7 @@ def _split_paragraph_node(
     text_node_to_split: etree._Element,
     char_offset_in_node: int,
 ):
-    new_p = deepcopy(p_element)
+    new_p = copy(p_element)
 
     # Modify the original paragraph (to be the first part of the split)
     original_text_nodes = list(p_element.iterfind(".//w:t", namespaces=NS))
@@ -86,21 +86,21 @@ def _split_paragraph_node(
 def preprocess_content(
     root: etree._Element, count: int, unit: Unit, boundary: Boundary
 ) -> Tuple[etree._Element, list]:
-    
+
     all_text_nodes = root.xpath(".//w:t", namespaces=NS)
     if not all_text_nodes:
         return root, []
 
     planned_splits = []
-    
+
     current_doc_val = 0
     node_idx = 0
     total_nodes = len(all_text_nodes)
-    
+
     while node_idx < total_nodes:
         node = all_text_nodes[node_idx]
         node_text = node.text or ""
-        
+
         if unit == Unit.CHARS:
             node_val = len(node_text)
         else:
@@ -108,16 +108,16 @@ def preprocess_content(
         potential_split_offset = -1
         if boundary != Boundary.STRICT:
             potential_split_offset = _find_last_valid_split_offset(node_text, boundary)
-        
+
         temp_val = current_doc_val + node_val
-        
+
         if temp_val >= count:
             final_split_node = node
             final_offset = -1
-            
+
             if boundary != Boundary.STRICT and potential_split_offset != -1:
                 final_offset = potential_split_offset
-                
+
             else:
                 if unit == Unit.CHARS:
                     overhang = temp_val - count
@@ -127,7 +127,7 @@ def preprocess_content(
 
             if final_offset > 0 and final_offset < len(node_text):
                 planned_splits.append((final_split_node, final_offset))
-                
+
                 remainder_text = node_text[final_offset:]
                 if unit == Unit.CHARS:
                     current_doc_val = len(remainder_text)
@@ -135,17 +135,17 @@ def preprocess_content(
                     current_doc_val = len(remainder_text.split())
             else:
                 current_doc_val = 0
-                
+
         else:
             current_doc_val = temp_val
-            
+
         node_idx += 1
 
     for node, offset in reversed(planned_splits):
         p_element = node.getparent()
         while p_element is not None and p_element.tag != f"{{{NS['w']}}}p":
             p_element = p_element.getparent()
-            
+
         if p_element is not None:
             _split_paragraph_node(p_element, node, offset)
 
@@ -153,20 +153,20 @@ def preprocess_content(
     split_ranges = []
     current_start_idx = 0
     current_val = 0
-    
+
     for idx, node in enumerate(final_text_nodes):
         txt = node.text or ""
         val = len(txt) if unit == Unit.CHARS else len(txt.split())
         current_val += val
-        
+
         if current_val >= count:
             split_ranges.append((current_start_idx, idx + 1))
             current_start_idx = idx + 1
             current_val = 0
-            
+
     if current_start_idx < len(final_text_nodes):
         split_ranges.append((current_start_idx, len(final_text_nodes)))
-        
+
     return root, split_ranges
 
 

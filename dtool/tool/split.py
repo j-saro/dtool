@@ -3,7 +3,6 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
-from copy import deepcopy
 import logging
 
 from ..core.config import Config
@@ -74,6 +73,7 @@ def split_docx(config: Config) -> int:
             logging.info(f"Determined to create {num_copies} files.")
 
             modified_xml_data = etree.tostring(modified_xml_root, encoding="utf-8")
+            rel_data = etree.tostring(rel_root)
 
             if len(index_list) != num_copies:
                 index_list.append((index_list[-1][1], constants.MAX_INDEX))
@@ -91,7 +91,7 @@ def split_docx(config: Config) -> int:
                             basename,
                             shared_extract_path,
                             modified_xml_data,
-                            deepcopy(rel_root),
+                            rel_data,
                             workspace,
                             index_list[i],
                             num_copies,
@@ -125,7 +125,7 @@ def process_split(
     basename: str,
     shared_extract_path: str,
     xml_data: bytes,
-    rel_root: etree._Element,
+    rel_data: etree._Element,
     workspace: Workspace,
     index_range: tuple,
     total_splits: int,
@@ -144,6 +144,8 @@ def process_split(
             shutil.copytree(shared_extract_path, split_work_dir)
         except shutil.Error as e:
             raise RuntimeError(f"File collision during copy: {str(e)}") from e
+
+        rel_root = etree.fromstring(rel_data)
 
         xml_parser = etree.XMLParser(remove_blank_text=True)
         xml_root = etree.fromstring(xml_data, xml_parser)
