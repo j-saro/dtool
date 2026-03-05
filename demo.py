@@ -4,7 +4,7 @@ from dtool import split_docx, Config, Boundary, Unit, merge_docx
 def split():
     split_docx(
         Config(
-            file_path=r"Moby-Dick_-Or_-The-Whale-by-Herman-Melville.docx",
+            file_path=r"examples\Moby-Dick_-Or_-The-Whale-by-Herman-Melville.docx",
             output_path="split_output",
             count=90000,
             unit=Unit.CHARS,
