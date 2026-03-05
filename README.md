@@ -58,11 +58,11 @@ You can merge files by providing a folder path or an explicit list of file paths
 from dtool import merge_docx
 
 # Merge from a folder (Sorted automatically)
-merge_docx(input_files="folder_path", output_path="out.docx", remove_encryption=True)
+merge_docx(input_files="folder_path", output_path="output_folder", remove_encryption=True)
 
 # Merge from a specific list (Preserves list order)
 files = ["0002.docx", "0001.docx"]
-merge_docx(input_files=files, output_path="out.docx")
+merge_docx(input_files=files, output_path="output_folder")
 ```
 
 **Important Notes for Merging:**
