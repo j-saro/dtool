@@ -50,8 +50,8 @@ def merge_docx(
                 stream = preprocess_docx(
                     file_bytes,
                     remove_encryption,
-                    "deepml:banner",
-                    {"deepml": "http://www.deepl.com/document-translation/deepml"},
+                    # "deepml:banner",
+                    # {"deepml": "http://www.deepl.com/document-translation/deepml"},
                 )
 
                 doc_streams.append(stream)

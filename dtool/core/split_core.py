@@ -133,7 +133,8 @@ def preprocess_content(
 
     for node, offset in reversed(planned_splits):
         p_element = node.getparent()
-        while p_element is not None and p_element.tag != f"{{{NS['w']}}}p":
+        W_P = etree.QName(NS['w'], 'p').text
+        while p_element.tag != W_P:
             p_element = p_element.getparent()
 
         if p_element is not None:

@@ -3,11 +3,12 @@ import io
 import zipfile
 from lxml import etree
 from docx import Document
+from pathlib import Path
 from docxcompose.composer import Composer
 import logging
 from typing import List, IO
 
-from ..utils import constants
+from ..utils.constants import NS
 
 
 def preprocess_docx(
@@ -19,7 +20,7 @@ def preprocess_docx(
     input_stream = io.BytesIO(docx_bytes)
     output_stream = io.BytesIO()
 
-    current_ns = constants.NS.copy()
+    current_ns = NS.copy()
     if tag_ns:
         current_ns.update(tag_ns)
 
@@ -33,7 +34,7 @@ def preprocess_docx(
                 try:
                     root = etree.fromstring(content)
                     protections = root.findall(
-                        "w:documentProtection", namespaces=constants.NS
+                        "w:documentProtection", namespaces=NS
                     )
                     if protections:
                         for p in protections:
@@ -83,6 +84,14 @@ def merge_documents(streams: List[IO[bytes]], output_path: str) -> None:
     if not streams:
         return
 
+    path = Path(output_path)
+    if path.exists():
+        stem = path.stem
+        suffix = path.suffix
+        new_name = f"{stem}_{os.urandom(4).hex()}{suffix}"
+        path = path.with_name(new_name)
+        logging.info(f"File already exists. Renaming output to: {path.name}")
+
     logging.info(f"Initializing master document 1...")
     master_doc = Document(streams[0])
     composer = Composer(master_doc)
@@ -92,5 +101,5 @@ def merge_documents(streams: List[IO[bytes]], output_path: str) -> None:
         doc_to_append = Document(stream)
         composer.append(doc_to_append)
 
-    logging.info(f"Saving merged document to {output_path}")
-    composer.save(output_path)
+    logging.info(f"Saving merged document to {path}")
+    composer.save(path)

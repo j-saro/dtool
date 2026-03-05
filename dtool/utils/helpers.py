@@ -26,17 +26,3 @@ def timer(func):
 def generate_filename(basename: str, index: int) -> str:
     return f"{index+1:04d}_{basename}.docx"
 
-
-def move_files(src_folder: str, destination_folder: str) -> None:
-    try:
-        shutil.move(src_folder, destination_folder)
-    except Exception as e:
-        logging.error(f"Error moving files: {str(e)}")
-
-
-def copy_files(src_files: list, destination_folder: str) -> None:
-    try:
-        for file in src_files:
-            shutil.copy(file, destination_folder)
-    except Exception as e:
-        logging.error(f"Error moving files: {str(e)}")
