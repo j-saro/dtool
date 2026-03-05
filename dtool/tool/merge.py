@@ -38,7 +38,7 @@ def merge_docx(
         raise ValueError("No input files provided")
 
     try:
-        logging.info("Starting In-Memory Merge...")
+        logging.info("Starting Merge...")
 
         doc_streams = []
 
@@ -50,6 +50,7 @@ def merge_docx(
                 stream = preprocess_docx(
                     file_bytes,
                     remove_encryption,
+                    # TODO
                     # "deepml:banner",
                     # {"deepml": "http://www.deepl.com/document-translation/deepml"},
                 )
